@@ -219,7 +219,7 @@ jspm_packages
 .yarn-integrity
 
 # dotenv environment variables file
-.env
+src/config/settings.py
 
 
 ### PhpStorm ###
@@ -368,4 +368,9 @@ temp*
 
 config.json
 *.env
-*settings.py
+__pycache__
+
+src/config
+test
+misc
+stuff.py
