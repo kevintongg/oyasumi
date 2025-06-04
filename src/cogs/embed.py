@@ -1,168 +1,426 @@
-from discord.ext import commands
-from misc.stuff import colors
 import discord
 import random
+import asyncio
+from discord import app_commands
+from discord.ext import commands
+
+
+class EmbedView(discord.ui.View):
+    """Interactive view for embed creator"""
+
+    def __init__(self, bot):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.bot = bot
+        self.embed_data = {
+            'title': None,
+            'description': None,
+            'color': discord.Color.blue(),
+            'author': None,
+            'footer': None,
+            'image': None,
+            'thumbnail': None,
+            'fields': []
+        }
+
+    @discord.ui.button(label='Set Title', style=discord.ButtonStyle.primary, emoji='📝')
+    async def set_title(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Set the embed title"""
+        modal = EmbedModal('title', 'Set Title', 'Enter the embed title:', self.embed_data['title'])
+        modal.embed_view = self
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label='Set Description', style=discord.ButtonStyle.primary, emoji='📄')
+    async def set_description(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Set the embed description"""
+        modal = EmbedModal('description', 'Set Description', 'Enter the embed description:', self.embed_data['description'])
+        modal.embed_view = self
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label='Set Color', style=discord.ButtonStyle.secondary, emoji='🎨')
+    async def set_color(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Set the embed color"""
+        view = ColorSelectView(self)
+        await interaction.response.send_message("Choose a color for your embed:", view=view, ephemeral=True)
+
+    @discord.ui.button(label='Add Field', style=discord.ButtonStyle.success, emoji='➕')
+    async def add_field(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Add a field to the embed"""
+        modal = FieldModal(self.embed_data)
+        modal.embed_view = self
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label='Send Embed', style=discord.ButtonStyle.success, emoji='🚀', row=1)
+    async def send_embed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Send the created embed"""
+        embed = self.create_embed()
+        await interaction.response.send_message("Here's your embed:", embed=embed)
+
+    @discord.ui.button(label='Preview', style=discord.ButtonStyle.secondary, emoji='👀', row=1)
+    async def preview_embed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Preview the embed"""
+        embed = self.create_embed()
+        updated_view = self.create_updated_view()
+        await interaction.response.edit_message(embed=embed, view=updated_view)
+
+    def create_embed(self):
+        """Create the Discord embed from stored data"""
+        embed = discord.Embed(
+            title=self.embed_data['title'],
+            description=self.embed_data['description'],
+            color=self.embed_data['color']
+        )
+
+        if self.embed_data['author']:
+            embed.set_author(name=self.embed_data['author'])
+
+        if self.embed_data['footer']:
+            embed.set_footer(text=self.embed_data['footer'])
+
+        if self.embed_data['image']:
+            embed.set_image(url=self.embed_data['image'])
+
+        if self.embed_data['thumbnail']:
+            embed.set_thumbnail(url=self.embed_data['thumbnail'])
+
+        for field in self.embed_data['fields']:
+            embed.add_field(name=field['name'], value=field['value'], inline=field.get('inline', True))
+
+        return embed
+
+    def create_updated_view(self):
+        """Create updated view showing current data"""
+        embed = discord.Embed(
+            title="🛠️ Embed Creator",
+            description="Use the buttons below to create your custom embed!",
+            color=discord.Color.blue()
+        )
+
+        embed.add_field(
+            name="📝 Title",
+            value=self.embed_data['title'] or "Not set",
+            inline=True
+        )
+        embed.add_field(
+            name="📄 Description",
+            value=(self.embed_data['description'][:50] + "...") if self.embed_data['description'] and len(self.embed_data['description']) > 50 else (self.embed_data['description'] or "Not set"),
+            inline=True
+        )
+        embed.add_field(
+            name="🎨 Color",
+            value=str(self.embed_data['color']),
+            inline=True
+        )
+        embed.add_field(
+            name="📋 Fields",
+            value=f"{len(self.embed_data['fields'])} field(s)",
+            inline=True
+        )
+
+        return embed
+
+
+class EmbedModal(discord.ui.Modal):
+    """Modal for setting embed properties"""
+
+    def __init__(self, field_type, title, label, current_value=None):
+        super().__init__(title=title)
+        self.field_type = field_type
+        self.embed_view = None
+
+        if field_type == 'title':
+            max_length = 256
+        else:  # description
+            max_length = 4000
+
+        self.input = discord.ui.TextInput(
+            label=label,
+            default=current_value,
+            max_length=max_length,
+            style=discord.TextStyle.long if field_type == 'description' else discord.TextStyle.short,
+            required=False
+        )
+        self.add_item(self.input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        self.embed_view.embed_data[self.field_type] = self.input.value if self.input.value else None
+        updated_embed = self.embed_view.create_updated_view()
+        await interaction.response.edit_message(embed=updated_embed, view=self.embed_view)
+
+
+class FieldModal(discord.ui.Modal):
+    """Modal for adding fields"""
+
+    def __init__(self, embed_data):
+        super().__init__(title="Add Field")
+        self.embed_data = embed_data
+        self.embed_view = None
+
+        self.name_input = discord.ui.TextInput(
+            label="Field Name",
+            max_length=256,
+            placeholder="Enter field name..."
+        )
+
+        self.value_input = discord.ui.TextInput(
+            label="Field Value",
+            style=discord.TextStyle.long,
+            max_length=1024,
+            placeholder="Enter field content..."
+        )
+
+        self.add_item(self.name_input)
+        self.add_item(self.value_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        self.embed_data['fields'].append({
+            'name': self.name_input.value,
+            'value': self.value_input.value,
+            'inline': True
+        })
+
+        updated_embed = self.embed_view.create_updated_view()
+        await interaction.response.edit_message(embed=updated_embed, view=self.embed_view)
+
+
+class ColorSelectView(discord.ui.View):
+    """View for selecting embed colors"""
+
+    def __init__(self, embed_view):
+        super().__init__(timeout=60)
+        self.embed_view = embed_view
+
+    @discord.ui.select(
+        placeholder="Choose a color...",
+        options=[
+            discord.SelectOption(label="Blue", emoji="🔵", value="blue"),
+            discord.SelectOption(label="Red", emoji="🔴", value="red"),
+            discord.SelectOption(label="Green", emoji="🟢", value="green"),
+            discord.SelectOption(label="Yellow", emoji="🟡", value="yellow"),
+            discord.SelectOption(label="Purple", emoji="🟣", value="purple"),
+            discord.SelectOption(label="Orange", emoji="🟠", value="orange"),
+            discord.SelectOption(label="Gold", emoji="🟨", value="gold"),
+            discord.SelectOption(label="Random", emoji="🎲", value="random"),
+        ]
+    )
+    async def color_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        color_map = {
+            'blue': discord.Color.blue(),
+            'red': discord.Color.red(),
+            'green': discord.Color.green(),
+            'yellow': discord.Color.yellow(),
+            'purple': discord.Color.purple(),
+            'orange': discord.Color.orange(),
+            'gold': discord.Color.gold(),
+            'random': self.get_random_color()
+        }
+
+        self.embed_view.embed_data['color'] = color_map[select.values[0]]
+        updated_embed = self.embed_view.create_updated_view()
+
+        # Update the original message
+        try:
+            await interaction.response.edit_message(content="Color updated!", view=None)
+            # We need to edit the original embed message, but we can't do it directly here
+            # The embed view will be updated when the user interacts with it next
+        except:
+            await interaction.response.send_message("Color updated!", ephemeral=True)
+
+    def get_random_color(self):
+        """Get a random color"""
+        colors = [
+            discord.Color.red(),
+            discord.Color.blue(),
+            discord.Color.green(),
+            discord.Color.yellow(),
+            discord.Color.purple(),
+            discord.Color.orange(),
+            discord.Color.magenta(),
+            discord.Color.gold(),
+            discord.Color.blurple(),
+            discord.Color.dark_blue(),
+            discord.Color.dark_green(),
+        ]
+        return random.choice(colors)
 
 
 class Embed(commands.Cog):
+    """Commands for creating and managing embeds"""
 
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(
-        name='embed',
-        description='The embed command',
+    @app_commands.command(name='embed', description='Interactive embed creator with buttons')
+    async def create_embed(self, interaction: discord.Interaction):
+        """Interactive embed creator"""
+        view = EmbedView(self.bot)
+        embed = discord.Embed(
+            title="🛠️ Embed Creator",
+            description="Use the buttons below to create your custom embed!",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="📝 Title", value="Not set", inline=True)
+        embed.add_field(name="📄 Description", value="Not set", inline=True)
+        embed.add_field(name="🎨 Color", value="Blue", inline=True)
+
+        await interaction.response.send_message(embed=embed, view=view)
+
+    @app_commands.command(name='quickembed', description='Create a quick embed with just a description')
+    @app_commands.describe(content='The content for your embed')
+    async def quick_embed(self, interaction: discord.Interaction, content: str):
+        """Create a quick embed with just a description"""
+        embed = discord.Embed(
+            description=content,
+            color=self.get_random_color(),
+            timestamp=interaction.created_at
+        )
+
+        embed.set_author(
+            name=interaction.user.display_name,
+            icon_url=interaction.user.avatar.url if interaction.user.avatar else None
+        )
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name='say', description='Make the bot say something in an embed')
+    @app_commands.describe(message='The message to say')
+    async def say_embed(self, interaction: discord.Interaction, message: str):
+        """Make the bot say something in an embed"""
+        embed = discord.Embed(
+            description=message,
+            color=discord.Color.blurple()
+        )
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name='announce', description='Create an announcement embed')
+    @app_commands.describe(announcement='The announcement message')
+    @app_commands.default_permissions(manage_messages=True)
+    async def announce(self, interaction: discord.Interaction, announcement: str):
+        """Create an announcement embed (requires manage messages permission)"""
+        embed = discord.Embed(
+            title="📢 Announcement",
+            description=announcement,
+            color=discord.Color.gold(),
+            timestamp=interaction.created_at
+        )
+
+        embed.set_author(
+            name=interaction.guild.name if interaction.guild else "Announcement",
+            icon_url=interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None
+        )
+
+        embed.set_footer(text=f"Announced by {interaction.user}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
+
+        await interaction.response.send_message("@everyone", embed=embed)
+
+    @app_commands.command(name='poll', description='Create a poll with reactions')
+    @app_commands.describe(
+        question='The poll question',
+        option1='First option',
+        option2='Second option',
+        option3='Third option (optional)',
+        option4='Fourth option (optional)',
+        option5='Fifth option (optional)'
     )
-    async def embed_command(self, ctx):
+    async def poll(self, interaction: discord.Interaction, question: str, option1: str, option2: str,
+                  option3: str = None, option4: str = None, option5: str = None):
+        """Create a poll with reactions"""
+        options = [option1, option2]
+        if option3:
+            options.append(option3)
+        if option4:
+            options.append(option4)
+        if option5:
+            options.append(option5)
 
-        # Define a check function that validates the message received by the bot
-        def check(ms):
-            # Look for the message sent in the same channel where the command was used
-            # As well as by the user who used the command.
-            return ms.channel == ctx.message.channel and ms.author == ctx.message.author
-
-        # First ask the user for the title
-        await ctx.send(content='What would you like the title to be?')
-
-        # Wait for a response and get the title
-        msg = await self.bot.wait_for('message', check=check)
-        title = msg.content
-        # Set the title
-
-        # Next, ask for the content
-        await ctx.send(content='What would you like the Description to be?')
-        msg = await self.bot.wait_for('message', check=check)
-        desc = msg.content
-
-        # Finally make the embed and send it
-        msg = await ctx.send(content='Now generating the embed...')
-
-        color_list = [c for c in colors.values()]
-        # Convert the colors into a list
-        # To be able to use random.choice on it
+        # Number emojis for options
+        number_emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣']
 
         embed = discord.Embed(
-            title=title,
-            description=desc,
-            color=random.choice(color_list)
-        )
-        # Also set the thumbnail to be the bot's pfp
-        embed.set_thumbnail(url=self.bot.user.avatar_url)
-
-        # Also set the embed author to the command user
-        embed.set_author(
-            name=ctx.message.author.name,
-            icon_url=ctx.message.author.avatar_url
+            title="📊 Poll",
+            description=f"**{question}**",
+            color=discord.Color.blue(),
+            timestamp=interaction.created_at
         )
 
-        await msg.edit(
-            embed=embed,
-            content=None
-        )
-        # Editing the message
-        # We have to specify the content to be 'None' here
-        # Since we don't want it to stay to 'Now generating embed...'
+        # Add options to embed
+        options_text = ""
+        for i, option in enumerate(options):
+            options_text += f"{number_emojis[i]} {option}\n"
 
-        return
+        embed.add_field(name="Options", value=options_text, inline=False)
+        embed.set_footer(text=f"Poll created by {interaction.user}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
 
-    @commands.command(
-        name='help',
-        description='The help command!',
-        aliases=['commands', 'command'],
-        usage='cog'
-    )
-    async def help_command(self, ctx, cog='all'):
+        # Send poll and add reactions
+        await interaction.response.send_message(embed=embed)
+        poll_message = await interaction.original_response()
 
-        # The third parameter comes into play when
-        # only one word argument has to be passed by the user
+        for i in range(len(options)):
+            await poll_message.add_reaction(number_emojis[i])
 
-        # Prepare the embed
-
-        color_list = [c for c in colors.values()]
-        help_embed = discord.Embed(
-            title='Help',
-            color=random.choice(color_list)
-        )
-        help_embed.set_thumbnail(url=self.bot.user.avatar_url)
-        help_embed.set_footer(
-            text=f'Requested by {ctx.message.author.name}',
-            # icon_url=self.bot.user.avatar_url
-            icon_url=ctx.message.author.avatar_url
-        )
-
-        # Get a list of all cogs
-        cogs = [c for c in self.bot.cogs.keys()]
-
-        # If cog is not specified by the user, we list all cogs and commands
-
-        if cog == 'all':
-            for cog in cogs:
-                # Get a list of all commands under each cog
-
-                cog_commands = self.bot.get_cog(cog).get_commands()
-                commands_list = ''
-                for comm in cog_commands:
-                    commands_list += f'**{comm.name}** - *{comm.description}*\n'
-
-                # Add the cog's details to the embed.
-
-                help_embed.add_field(
-                    name=cog,
-                    value=commands_list,
-                    inline=False
-                ).add_field(
-                    name='\u200b', value='\u200b', inline=False
-                )
-
-                # Also added a blank field '\u200b' is a whitespace character.
-            pass
+    @app_commands.command(name='embedinfo', description='Get information about an embed')
+    @app_commands.describe(message_id='The ID of the message containing the embed (optional)')
+    async def embed_info(self, interaction: discord.Interaction, message_id: str = None):
+        """Get information about an embed in the current channel"""
+        if message_id:
+            try:
+                message = await interaction.channel.fetch_message(int(message_id))
+            except (discord.NotFound, ValueError):
+                await interaction.response.send_message("❌ Message not found!", ephemeral=True)
+                return
         else:
-
-            # If the cog was specified
-
-            lower_cogs = [c.lower() for c in cogs]
-
-            # If the cog actually exists.
-            if cog.lower() in lower_cogs:
-
-                # Get a list of all commands in the specified cog
-                commands_list = self.bot.get_cog(cogs[lower_cogs.index(cog.lower())]).get_commands()
-                help_text = ''
-
-                # Add details of each command to the help text
-                # Command Name
-                # Description
-                # [Aliases]
-                #
-                # Format
-                for command in commands_list:
-                    help_text += f'```{command.name}```\n' \
-                                 f'**{command.description}**\n\n'
-
-                    # Also add aliases, if there are any
-                    if len(command.aliases) > 0:
-                        help_text += f'**Aliases :** `{"`, `".join(command.aliases)}`\n\n\n'
-                    else:
-                        # Add a newline character to keep it pretty
-                        # That IS the whole purpose of custom help
-                        help_text += '\n'
-
-                    # Finally the format
-                    help_text += f'Format: `@{self.bot.user.name}#{self.bot.user.discriminator}' \
-                                 f' {command.name} {command.usage if command.usage is not None else ""}`\n\n\n\n'
-
-                help_embed.description = help_text
+            # Get the last message with an embed in the channel
+            async for msg in interaction.channel.history(limit=50):
+                if msg.embeds and msg.id != interaction.id:
+                    message = msg
+                    break
             else:
-                # Notify the user of invalid cog and finish the command
-                await ctx.send('Invalid cog specified.\nUse `help` command to list all cogs.')
+                await interaction.response.send_message("❌ No embeds found in recent messages!", ephemeral=True)
                 return
 
-        await ctx.send(embed=help_embed)
-
+        if not message.embeds:
+            await interaction.response.send_message("❌ That message doesn't contain an embed!", ephemeral=True)
         return
 
+        embed_to_analyze = message.embeds[0]
 
-def setup(bot):
-    bot.add_cog(Embed(bot))
-    # Adds the Basic commands to the bot
-    # Note: The "setup" function has to be there in every cog file
+        # Create info embed
+        info_embed = discord.Embed(
+            title="📋 Embed Information",
+            color=discord.Color.green()
+        )
+
+        info_embed.add_field(name="Title", value=embed_to_analyze.title or "None", inline=False)
+        info_embed.add_field(name="Description", value=embed_to_analyze.description[:100] + "..." if embed_to_analyze.description and len(embed_to_analyze.description) > 100 else embed_to_analyze.description or "None", inline=False)
+        info_embed.add_field(name="Color", value=str(embed_to_analyze.color), inline=True)
+        info_embed.add_field(name="Fields", value=len(embed_to_analyze.fields), inline=True)
+        info_embed.add_field(name="Message ID", value=message.id, inline=True)
+
+        if embed_to_analyze.author:
+            info_embed.add_field(name="Author", value=embed_to_analyze.author.name, inline=True)
+        if embed_to_analyze.footer:
+            info_embed.add_field(name="Footer", value=embed_to_analyze.footer.text, inline=True)
+
+        await interaction.response.send_message(embed=info_embed)
+
+    def get_random_color(self):
+        """Get a random color"""
+        colors = [
+            discord.Color.red(),
+            discord.Color.blue(),
+            discord.Color.green(),
+            discord.Color.yellow(),
+            discord.Color.purple(),
+            discord.Color.orange(),
+            discord.Color.magenta(),
+            discord.Color.gold(),
+            discord.Color.blurple(),
+            discord.Color.dark_blue(),
+            discord.Color.dark_green(),
+        ]
+        return random.choice(colors)
+
+
+async def setup(bot):
+    """Setup function to load the cog"""
+    await bot.add_cog(Embed(bot))

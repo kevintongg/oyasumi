@@ -1,12 +1,101 @@
+# ==============================================================================
+# OYASUMI DISCORD BOT - EditorConfig
+# ==============================================================================
+# Top-most EditorConfig file
 root = true
 
+# All files
 [*]
-indent_style = space
-indent_size = 4
-end_of_line = lf
 charset = utf-8
-trim_trailing_whitespace = true
+end_of_line = lf
 insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
 
+# Python files
+[*.py]
+indent_size = 4
+max_line_length = 120
+quote_type = single
+
+# JSON files
+[*.json]
+indent_size = 2
+
+# YAML files
+[*.{yml,yaml}]
+indent_size = 2
+
+# Configuration files
+[*.{toml,cfg,ini}]
+indent_size = 4
+
+# Markdown files
 [*.md]
 trim_trailing_whitespace = false
+max_line_length = 80
+
+# Environment files
+[.env*]
+insert_final_newline = false
+
+# Requirements files
+[requirements*.txt]
+insert_final_newline = true
+
+# Shell scripts
+[*.{sh,bash}]
+indent_size = 2
+end_of_line = lf
+
+# Batch files (Windows)
+[*.{bat,cmd}]
+end_of_line = crlf
+
+# HTML/CSS/JS (if used for web dashboard)
+[*.{html,css,js,ts}]
+indent_size = 2
+
+# XML files
+[*.xml]
+indent_size = 2
+
+# Log files
+[*.log]
+insert_final_newline = false
+trim_trailing_whitespace = false
+
+# Documentation
+[docs/**]
+max_line_length = 100
+
+# Configuration overrides for specific files
+[{package.json,bower.json}]
+indent_size = 2
+
+[Makefile]
+indent_style = tab
+
+# ==============================================================================
+# LANGUAGE-SPECIFIC OVERRIDES
+# ==============================================================================
+
+# Python specific settings
+[*.py]
+# PEP 8 compliance
+max_line_length = 88  # Black formatter default
+quote_type = double   # Prefer double quotes for consistency with discord.py
+
+# Test files
+[test_*.py, *_test.py, tests/**/*.py]
+max_line_length = 120  # Allow longer lines in tests
+
+# Configuration files
+[{pyproject.toml,setup.cfg,tox.ini}]
+indent_size = 4
+
+[.flake8]
+indent_size = 4
+
+[.pylintrc]
+indent_size = 4
